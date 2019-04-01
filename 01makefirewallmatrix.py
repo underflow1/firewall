@@ -1,14 +1,15 @@
 #!/usr/bin/python3
-
 from __future__ import print_function
 from googleapiclient.discovery import build
 from httplib2 import Http
 from oauth2client import file, client, tools
-import os
-#dir = os.path.dirname(__file__)
-dir = os.getcwd()
-token = os.path.join(dir, 'options/token.json') 
-credentials = os.path.join(dir, 'options/credentials.json')
+import os, sys
+
+dirsep = os.path.sep
+folder = sys.path[0] + dirsep
+token = folder + 'options/token.json'
+credentials = folder + 'options/credentials.json'
+routers = []
 
 SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly'
 SAMPLE_SPREADSHEET_ID = '1pmdLn_KFm2_821NiDhn_QHWblvAfAcRUdaA3OCIE58k'
@@ -19,54 +20,95 @@ if not creds or creds.invalid:
     creds = tools.run_flow(flow, store)
 service = build('sheets', 'v4', http=creds.authorize(Http()))
 sheet = service.spreadsheets()
-simplelistdict = {}
-sourcelistsarray = {}
-sourcelistsdict = {}
-routers = {}
 
-def filldict():
-    SAMPLE_RANGE_NAME = 'routerlist!A:B'
-    result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
-                                range=SAMPLE_RANGE_NAME).execute()
-    values = result.get('values', [])
+def getValues(range):
+        SAMPLE_RANGE_NAME = range
+        data = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
+                                    range=SAMPLE_RANGE_NAME).execute()
+        values = data.get('values', [])
+        if not values:
+            return False
+        return values
 
+class endpointAddresses():
+    addresses = []
+    def __init__(self):
+        values = getValues('servicematrix!A:F')
+        if not values:
+            print('No data found.')
+        else:
+            rowcount = 0
+            addressHeader = []
+            for row in values:
+                addressItem = {}
+                rowcount = rowcount + 1
+                if rowcount == 1:
+                    for item in row:
+                        addressHeader.append(item)
+                else:
+                    itemcount = 0
+                    for item in row:
+                        addressItem[addressHeader[itemcount]] = item
+                        itemcount = itemcount + 1
+                    self.addresses.append(addressItem)
+        values = getValues('locationlist!A:C')
+        if not values:
+            print('No data found.')
+        else:
+            for row in values:
+                addressItem = {}
+                addressItem[addressHeader[1]] = row[0]
+                addressItem[addressHeader[2]] = row[1]
+                addressItem[addressHeader[5]] = row[2]
+                self.addresses.append(addressItem)
+
+def fillrouters():
+    values = getValues('routerlist!A:B')
     if not values:
         print('No data found.')
     else:
-        a = open(dir+'/temp/hosts-mkr','w')
+        a = open(folder + '/temp/hosts-mkr','w')
         a.write(f'[mkr-firewall-matrix]\n\n')
         for row in values:
-            a.write(f'{row[0]} ansible_ssh_port=2222 router_id={row[1]}\n')
-            routers[row[1]] = []
+            routerItem = {'ip': row[0], 'name': row[1]}
+            routers.append(routerItem)
+            router_ip = routerItem.get('ip')
+            router_name = routerItem.get('name')
+            a.write(f'{router_ip} ansible_ssh_port=2222 router_id={router_name}\n')
+            #a.write(f'{row[0]} ansible_ssh_port=2222 router_id={row[1]}\n')
         a.close
 
+def readMatrix(spreadsheet):
+    values = getValues(spreadsheet)
+    srclist = []
+    dstlist = []
+    dstHeaders = []
+    srcHeaders = []
+    rowcount = 0 
+    for row in values:
+        colcount = 0
+        for item in row:
+            if rowcount == 0 and colcount == 0:
+                dstHeaders = row
+            if colcount == 0:
+                srcHeaders.append(item)
+            if colcount > 0 and rowcount > 0:
+                if item == 'x':
+                    if srcHeaders[rowcount] not in srclist:
+                        srclist.append(srcHeaders[rowcount])
+                    if dstHeaders[colcount] not in dstlist:
+                        dstlist.append(dstHeaders[colcount])
+            colcount = colcount + 1
+        rowcount = rowcount + 1
+    print(values)
+    pass
 
-def buildservicelists():
-    SAMPLE_RANGE_NAME = 'servicematrix!B2:H'
-    result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
-                                range=SAMPLE_RANGE_NAME).execute()
-    values = result.get('values', [])
-    if not values:
-        print('No data found.')
-    else:
-        for row in values:
-            if (row[3] == "comenergo" or row[3] == "shared") and row[1] != '':
-                if row[2] not in simplelistdict:
-                    simplelistdict[row[2]] = []
-                simplelistdict[row[2]].append([row[1],row[0],row[4]])
-    
-def buildlocationlists():
-    SAMPLE_RANGE_NAME = 'locationlist!A2:C'
-    result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
-                                range=SAMPLE_RANGE_NAME).execute()
-    values = result.get('values', [])
-    if not values:
-        print('No data found.')
-    else:
-        for row in values:
-            if not row[0] in simplelistdict:
-                simplelistdict[row[0]] = []
-            simplelistdict[row[0]].append([row[1],row[0],row[2]])
+a = endpointAddresses()
+
+fillrouters()
+
+readMatrix('location-location')
+
 
 def buildsourcelistsarray(range_name, sourcelistsarray):
     result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
