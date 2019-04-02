@@ -121,7 +121,6 @@ def readMatrix(spreadsheet):
                         parsedMatrixDst[dstHeaders[colcount]].append(src)
             colcount = colcount + 1
         rowcount = rowcount + 1
-    print(values)
     pass
 
 addresses = endpointAddresses(filter)
@@ -152,10 +151,16 @@ for routerRecord in routers:
                         srcItem = srcRecord.get('item', srcEntity)
                         a.write(f'add address={srcAddress} comment=\"_ansible_{srcItem}->{dstEntity}\" list=_ans_src_{dstEntity}\n')
                         pass
+    a.close
 
-#    a.write(f'/ip firewall filter\n')
-#    for record in routers[router]:
-#        a.write(f'add chain=forward src-address-list=_ans_src_{record} dst-address-list=_ans_dst_{record} action=accept comment=\"ANSIBLE MATRIX RULE {record}\"\n')
-#    a.write(f'add action=drop chain=forward comment=\"ANSIBLE DROP ALL FORWARD\" connection-nat-state=!dstnat connection-state=new\n')
-#    a.write(f'add action=drop chain=input in-interface-list=WAN comment=\"ANSIBLE DROP ALL INPUT\"\n')            
-#    a.close
+for routerRecord in routers:
+    router = routerRecord.get('name')
+    a = open(folder + '/temp/matrix_' + router + '.rsc','a')
+    a.write(f'/ip firewall filter\n')
+    for dstEntity in parsedMatrixDst:
+        dstList = addresses.getAddressesDst(dstEntity, router)
+        if dstList:
+            a.write(f'add chain=forward src-address-list=_ans_src_{dstEntity} dst-address-list=_ans_dst_{dstEntity} action=accept comment=\"ANSIBLE MATRIX RULE {dstEntity}\"\n')
+    a.write(f'add action=drop chain=forward comment=\"ANSIBLE DROP ALL FORWARD\" connection-nat-state=!dstnat connection-state=new\n')
+    a.write(f'add action=drop chain=input in-interface-list=WAN comment=\"ANSIBLE DROP ALL INPUT\"\n')            
+    a.close
