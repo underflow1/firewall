@@ -10,7 +10,8 @@ folder = sys.path[0] + dirsep
 token = folder + 'options/token.json'
 credentials = folder + 'options/credentials.json'
 routers = []
-srcdict = {}
+parsedMatrixDst = {}
+filter = ['comenergo', 'kkk']
 
 SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly'
 SAMPLE_SPREADSHEET_ID = '1pmdLn_KFm2_821NiDhn_QHWblvAfAcRUdaA3OCIE58k'
@@ -33,7 +34,7 @@ def getValues(range):
 
 class endpointAddresses():
     addresses = []
-    def __init__(self):
+    def __init__(self,filter):
         values = getValues('servicematrix!A:F')
         if not values:
             print('No data found.')
@@ -49,9 +50,14 @@ class endpointAddresses():
                 else:
                     itemcount = 0
                     for item in row:
-                        addressItem[addressHeader[itemcount]] = item
-                        itemcount = itemcount + 1
-                    self.addresses.append(addressItem)
+                        if item != '':
+                            addressItem[addressHeader[itemcount]] = item
+                            itemcount = itemcount + 1
+                        else:
+                            pass
+                    aff = addressItem.get('affilation')
+                    if aff in filter:
+                        self.addresses.append(addressItem)
         values = getValues('locationlist!A:C')
         if not values:
             print('No data found.')
@@ -65,9 +71,9 @@ class endpointAddresses():
 
     def getAddressesDst(self, entity, router):
         output = []
-        for item in self.addresses:
-            if item.get('entity') == entity and item.get('router') == router:
-                output.append(item)
+        for addressRecord in self.addresses:
+            if addressRecord.get('entity') == entity and addressRecord.get('router') == router:
+                output.append(addressRecord)
         return output
 
     def getAddressesSrc(self, entity):
@@ -99,66 +105,54 @@ def readMatrix(spreadsheet):
     rowcount = 0 
     for row in values:
         colcount = 0
-        for item in row:
+        for cell in row:
             if rowcount == 0 and colcount == 0:
+                for cell in row:
+                    if cell != '' and cell not in parsedMatrixDst:
+                        parsedMatrixDst[cell] = []
                 dstHeaders = row
             if colcount == 0:
-                src = item
+                src = cell
             if colcount > 0 and rowcount > 0:
-                if item == 'x':
-                    if src not in srcdict:
-                        srcdict[src] = []
-                    srcdict[src].append(dstHeaders[colcount])
+                if cell == 'x':
+                    ddd = dstHeaders[colcount]
+                    vvv = parsedMatrixDst[dstHeaders[colcount]]
+                    if ddd not in vvv:
+                        parsedMatrixDst[dstHeaders[colcount]].append(src)
             colcount = colcount + 1
         rowcount = rowcount + 1
     print(values)
     pass
 
-addresses = endpointAddresses()
+addresses = endpointAddresses(filter)
 fillrouters()
 readMatrix('location-location')
 readMatrix('location-service')
 readMatrix('service-service')
 
-for item in routers:
-    router = item.get('name')
+for routerRecord in routers:
+    router = routerRecord.get('name')
     if os.path.exists(folder + '/temp/matrix_' + router + '.rsc'):
         os.remove(folder + '/temp/matrix_' + router + '.rsc')
     a = open(folder + '/temp/matrix_' + router + '.rsc','a')
     a.write(f'/ip firewall address-list\n')
     print('write rsc', router)
-    srclist = []
-    for src in srcdict:
-        for ss in addresses.getAddressesSrc(src):
-            srclist.append(ss)
-            srcaddress = ss.get('ip')
-            srcentity = ss.get('entity')
-            name = ss.get('name', '')
-        dstlist = []
-        for dst_rule in srcdict[src]:
-            a.write(f'add address={srcaddress} comment=\"_ansible_{name}->{dst_rule}\" list=_ans_src_{dst_rule}\n')
-            for dd in addresses.getAddressesDst(dst_rule, router):
-                dstlist.append(dd)
-                dstaddress = dd.get('ip')
-                dstentity = dd.get('entity')
-                a.write(f'add address={dstaddress} comment=\"_ansible_{dstentity}\" list=_ans_dst_{dst_rule}\n')
-        pass
-            
-            
-        
-        
+    for dstEntity in parsedMatrixDst:
+        dstList = addresses.getAddressesDst(dstEntity, router)
+        if dstList:
+            for dstRecord in dstList:
+                dstaddress = dstRecord.get('ip')
+                a.write(f'add address={dstaddress} comment=\"_ansible_{dstEntity}\" list=_ans_dst_{dstEntity}\n')
+            srcEntityList = parsedMatrixDst[dstEntity]
+            for srcEntity in srcEntityList:
+                srcList = addresses.getAddressesSrc(srcEntity)
+                if srcList:
+                    for srcRecord in srcList:
+                        srcAddress = srcRecord.get('ip')
+                        srcItem = srcRecord.get('item', srcEntity)
+                        a.write(f'add address={srcAddress} comment=\"_ansible_{srcItem}->{dstEntity}\" list=_ans_src_{dstEntity}\n')
+                        pass
 
-        
-    pass
-#    for record in routers[router]:
-#        for sourcelist in sourcelistsdict:
-#            for simplelist in sourcelistsdict[sourcelist]:
-#                if record == sourcelist:
-#                    a.write(f'add address={simplelist[0]} comment=\"_ansible_{simplelist[1]}->{sourcelist}\" list=_ans_src_{sourcelist}\n')
-#        for simplelist in simplelistdict:
-#            if simplelist == record :
-#                for address in simplelistdict[simplelist]:
-#                    a.write(f'add address={address[0]} comment=\"_ansible_{address[1]}\" list=_ans_dst_{simplelist}\n')
 #    a.write(f'/ip firewall filter\n')
 #    for record in routers[router]:
 #        a.write(f'add chain=forward src-address-list=_ans_src_{record} dst-address-list=_ans_dst_{record} action=accept comment=\"ANSIBLE MATRIX RULE {record}\"\n')
