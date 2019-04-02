@@ -115,9 +115,9 @@ def readMatrix(spreadsheet):
                 src = cell
             if colcount > 0 and rowcount > 0:
                 if cell == 'x':
-                    ddd = dstHeaders[colcount]
-                    vvv = parsedMatrixDst[dstHeaders[colcount]]
-                    if ddd not in vvv:
+#                    ddd = dstHeaders[colcount]
+#                    vvv = parsedMatrixDst[dstHeaders[colcount]]
+                    if src not in parsedMatrixDst[dstHeaders[colcount]]:
                         parsedMatrixDst[dstHeaders[colcount]].append(src)
             colcount = colcount + 1
         rowcount = rowcount + 1
