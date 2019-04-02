@@ -10,6 +10,7 @@ folder = sys.path[0] + dirsep
 token = folder + 'options/token.json'
 credentials = folder + 'options/credentials.json'
 routers = []
+srcdict = {}
 
 SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly'
 SAMPLE_SPREADSHEET_ID = '1pmdLn_KFm2_821NiDhn_QHWblvAfAcRUdaA3OCIE58k'
@@ -57,10 +58,24 @@ class endpointAddresses():
         else:
             for row in values:
                 addressItem = {}
-                addressItem[addressHeader[1]] = row[0]
+                addressItem[addressHeader[3]] = row[0]
                 addressItem[addressHeader[2]] = row[1]
                 addressItem[addressHeader[5]] = row[2]
                 self.addresses.append(addressItem)
+
+    def getAddressesDst(self, entity, router):
+        output = []
+        for item in self.addresses:
+            if item.get('entity') == entity and item.get('router') == router:
+                output.append(item)
+        return output
+
+    def getAddressesSrc(self, entity):
+        output = []
+        for item in self.addresses:
+            if item.get('entity') == entity:
+                output.append(item)
+        return output
 
 def fillrouters():
     values = getValues('routerlist!A:B')
@@ -80,10 +95,7 @@ def fillrouters():
 
 def readMatrix(spreadsheet):
     values = getValues(spreadsheet)
-    srclist = []
-    dstlist = []
     dstHeaders = []
-    srcHeaders = []
     rowcount = 0 
     for row in values:
         colcount = 0
@@ -91,92 +103,65 @@ def readMatrix(spreadsheet):
             if rowcount == 0 and colcount == 0:
                 dstHeaders = row
             if colcount == 0:
-                srcHeaders.append(item)
+                src = item
             if colcount > 0 and rowcount > 0:
                 if item == 'x':
-                    if srcHeaders[rowcount] not in srclist:
-                        srclist.append(srcHeaders[rowcount])
-                    if dstHeaders[colcount] not in dstlist:
-                        dstlist.append(dstHeaders[colcount])
+                    if src not in srcdict:
+                        srcdict[src] = []
+                    srcdict[src].append(dstHeaders[colcount])
             colcount = colcount + 1
         rowcount = rowcount + 1
     print(values)
     pass
 
-a = endpointAddresses()
-
+addresses = endpointAddresses()
 fillrouters()
-
 readMatrix('location-location')
+readMatrix('location-service')
+readMatrix('service-service')
 
+for item in routers:
+    router = item.get('name')
+    if os.path.exists(folder + '/temp/matrix_' + router + '.rsc'):
+        os.remove(folder + '/temp/matrix_' + router + '.rsc')
+    a = open(folder + '/temp/matrix_' + router + '.rsc','a')
+    a.write(f'/ip firewall address-list\n')
+    print('write rsc', router)
+    srclist = []
+    for src in srcdict:
+        for ss in addresses.getAddressesSrc(src):
+            srclist.append(ss)
+            srcaddress = ss.get('ip')
+            srcentity = ss.get('entity')
+            name = ss.get('name', '')
+        dstlist = []
+        for dst_rule in srcdict[src]:
+            a.write(f'add address={srcaddress} comment=\"_ansible_{name}->{dst_rule}\" list=_ans_src_{dst_rule}\n')
+            for dd in addresses.getAddressesDst(dst_rule, router):
+                dstlist.append(dd)
+                dstaddress = dd.get('ip')
+                dstentity = dd.get('entity')
+                a.write(f'add address={dstaddress} comment=\"_ansible_{dstentity}\" list=_ans_dst_{dst_rule}\n')
+        pass
+            
+            
+        
+        
 
-def buildsourcelistsarray(range_name, sourcelistsarray):
-    result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
-                                range=range_name).execute()
-    values = result.get('values', [])
-    if not values:
-        print('No data found.')
-    else:
-        destinationlist = values[0]
-        row = 0
-        for line in values: 
-            col = 0
-            currentlocation = ''
-            for cell in line:
-                if col == 0 and cell in simplelistdict:
-                    currentlocation = cell
-                if col != 0 and row == 0 and cell not in sourcelistsarray:
-                    sourcelistsarray[destinationlist[col]] = []
-                if col != 0 and row != 0 and cell != '':
-                    sourcelistsarray[destinationlist[col]].append(currentlocation)
-                col += 1
-            row += 1
-
-def buildsourcelists(sourcelistsarray):
-    for sourcelist in sourcelistsarray:
-        if sourcelist not in sourcelistsdict:
-            sourcelistsdict[sourcelist] = []
-        for simplelist in sourcelistsarray[sourcelist]:
-            sourcelistsdict[sourcelist].extend(simplelistdict[simplelist])
-
-if __name__ == '__main__':
-    print("build services simple lists")
-    buildservicelists()
-    print("build locations simple lists")
-    buildlocationlists()
-    print("create location-location lists")
-    buildsourcelistsarray('location-location!A:z', sourcelistsarray)
-    buildsourcelistsarray('location-service!A:Z', sourcelistsarray)
-    buildsourcelistsarray('service-service!A:Z', sourcelistsarray)
-    buildsourcelists(sourcelistsarray)
-
-    filldict()
-    for simplelist in simplelistdict:
-        for record in simplelistdict[simplelist]:
-            if record[2] not in routers and record[2] != '':
-                routers[record[2]] = []
-            if record[2] != '' and simplelist not in routers[record[2]]:
-                routers[record[2]].append(simplelist)
-
-    for router in routers:
-        if os.path.exists(dir+'/temp/matrix_'+router+'.rsc'):
-            os.remove(dir+'/temp/matrix_'+router+'.rsc')
-        a = open(dir+'/temp/matrix_'+router+'.rsc','a')
-        a.write(f'/ip firewall address-list\n')
-        print('write rsc', router)
-        for record in routers[router]:
-            for sourcelist in sourcelistsdict:
-                for simplelist in sourcelistsdict[sourcelist]:
-                    if record == sourcelist:
-                        a.write(f'add address={simplelist[0]} comment=\"_ansible_{simplelist[1]}->{sourcelist}\" list=_ans_src_{sourcelist}\n')
-            for simplelist in simplelistdict:
-                if simplelist == record :
-                    for address in simplelistdict[simplelist]:
-                        a.write(f'add address={address[0]} comment=\"_ansible_{address[1]}\" list=_ans_dst_{simplelist}\n')
-        a.write(f'/ip firewall filter\n')
-        for record in routers[router]:
-            a.write(f'add chain=forward src-address-list=_ans_src_{record} dst-address-list=_ans_dst_{record} action=accept comment=\"ANSIBLE MATRIX RULE {record}\"\n')
-        a.write(f'add action=drop chain=forward comment=\"ANSIBLE DROP ALL FORWARD\" connection-nat-state=!dstnat connection-state=new\n')
-        a.write(f'add action=drop chain=input in-interface-list=WAN comment=\"ANSIBLE DROP ALL INPUT\"\n')            
-        a.close
-
+        
+    pass
+#    for record in routers[router]:
+#        for sourcelist in sourcelistsdict:
+#            for simplelist in sourcelistsdict[sourcelist]:
+#                if record == sourcelist:
+#                    a.write(f'add address={simplelist[0]} comment=\"_ansible_{simplelist[1]}->{sourcelist}\" list=_ans_src_{sourcelist}\n')
+#        for simplelist in simplelistdict:
+#            if simplelist == record :
+#                for address in simplelistdict[simplelist]:
+#                    a.write(f'add address={address[0]} comment=\"_ansible_{address[1]}\" list=_ans_dst_{simplelist}\n')
+#    a.write(f'/ip firewall filter\n')
+#    for record in routers[router]:
+#        a.write(f'add chain=forward src-address-list=_ans_src_{record} dst-address-list=_ans_dst_{record} action=accept comment=\"ANSIBLE MATRIX RULE {record}\"\n')
+#    a.write(f'add action=drop chain=forward comment=\"ANSIBLE DROP ALL FORWARD\" connection-nat-state=!dstnat connection-state=new\n')
+#    a.write(f'add action=drop chain=input in-interface-list=WAN comment=\"ANSIBLE DROP ALL INPUT\"\n')            
+#    a.close
